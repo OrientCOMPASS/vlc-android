@@ -140,9 +140,18 @@ class PlayerActivity : Activity() {
         }
 
         eyeButton.setOnClickListener {
+            // single tap: switch the rendered eye (in place, position preserved)
             engine.eye = engine.eye.other()
             eyeButton.text = getString(R.string.eye_label, engine.eye.label)
             status.text = "eye → ${engine.eye.label} @ ${format(engine.time)}"
+        }
+        eyeButton.setOnLongClickListener {
+            // long press: invert the packing order advertised by the container,
+            // for sources whose two eyes are swapped
+            engine.swapEyes = !engine.swapEyes
+            status.text = "eye order inverted: ${engine.swapEyes} " +
+                "(${engine.projectionDescription})"
+            true
         }
 
         gyroButton.setOnClickListener {
