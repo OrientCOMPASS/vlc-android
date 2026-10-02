@@ -49,7 +49,7 @@ class RsMediaPlayer(
         val created = NativeBridge.nativeCreate(this, surfaceTextureBridge, context.packageName)
         require(created != 0L) { "libvlcrs could not create an engine instance" }
         handle = created
-        Log.i(TAG, "engine created (handle=$created, libvlcrs ${NativeBridge.nativeVersion()})")
+        Log.i(TAG, "engine created (handle=$created, libvlcrs ${NativeBridge.nativeVersion() ?: "?"})")
     }
 
     private val h: Long
@@ -272,11 +272,11 @@ class RsMediaPlayer(
 
     /** The formatted multi-line HUD text produced by the engine. */
     val hudText: String
-        get() = if (handle == 0L) "" else NativeBridge.nativeGetHudText(h)
+        get() = if (handle == 0L) "" else NativeBridge.nativeGetHudText(h).orEmpty()
 
     /** One line description of the resolved projection. */
     val projectionDescription: String
-        get() = if (handle == 0L) "" else NativeBridge.nativeDescribeProjection(h)
+        get() = if (handle == 0L) "" else NativeBridge.nativeDescribeProjection(h).orEmpty()
 
     /** Static information about the loaded item. */
     val mediaInfo: MediaInfo

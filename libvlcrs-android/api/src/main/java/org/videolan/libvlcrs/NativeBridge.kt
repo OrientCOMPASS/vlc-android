@@ -59,9 +59,9 @@ object NativeBridge {
     external fun nativeGetViewInfo(handle: Long, out: FloatArray): Int
     external fun nativeGetMediaInfo(handle: Long, out: IntArray): Int
     external fun nativeGetStats(handle: Long, out: LongArray): Int
-    external fun nativeGetHudText(handle: Long): String
-    external fun nativeDescribeProjection(handle: Long): String
-    external fun nativeVersion(): String
+    external fun nativeGetHudText(handle: Long): String?
+    external fun nativeDescribeProjection(handle: Long): String?
+    external fun nativeVersion(): String?
 }
 
 /** Callback interface implemented by [RsMediaPlayer]; invoked from engine threads. */

@@ -64,7 +64,7 @@ object LibVLCRs {
     @JvmStatic
     fun version(): String {
         ensureLoaded()
-        return NativeBridge.nativeVersion()
+        return NativeBridge.nativeVersion() ?: "unknown"
     }
 
     /**
