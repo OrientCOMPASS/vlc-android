@@ -199,14 +199,16 @@ jobs:
           test -n "$APK" && test -n "$AAR"
           cp "$APK" dist/apk/libvlcrs-vr-demo-1.0.0-arm64-v8a.apk
           cp "$AAR" dist/aar/libvlcrs-api-1.0.0.aar
-          cp dist/vlcrs.h dist/
+          echo "apk: $APK"
+          echo "aar: $AAR"
           (cd dist/apk && sha256sum *.apk > SHA256SUMS.txt)
           (cd dist/aar && sha256sum *.aar >> SHA256SUMS.txt)
           (cd dist && sha256sum libvlcrs.so vlcrs.h > SHA256SUMS-engine.txt)
           cat dist/apk/SHA256SUMS.txt dist/aar/SHA256SUMS.txt dist/SHA256SUMS-engine.txt \
             > dist/SHA256SUMS.txt
           rm -f dist/apk/SHA256SUMS.txt dist/aar/SHA256SUMS.txt dist/SHA256SUMS-engine.txt
-          (cd libvlcrs-android/demo/src/main && zip -qr "$GITHUB_WORKSPACE/dist/vr-test-media.zip" assets)
+          # python's zipfile avoids depending on `zip` being installed
+          (cd libvlcrs-android/demo/src/main && python3 -m zipfile -c "$GITHUB_WORKSPACE/dist/vr-test-media.zip" assets)
           {
             echo "libvlcrs VR player build"
             echo "========================"
