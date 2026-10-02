@@ -167,9 +167,16 @@ jobs:
       - name: verify the generated media with the engine prober
         run: |
           set -euo pipefail
+          ASSETS="$GITHUB_WORKSPACE/libvlcrs-android/demo/src/main/assets"
+          # only media files: the assets directory also holds a README
+          mapfile -t FILES < <(find "$ASSETS" -maxdepth 1 -type f \
+            \( -name '*.mp4' -o -name '*.mkv' -o -name '*.webm' -o -name '*.mov' \) | sort)
+          if [ "${#FILES[@]}" -lt 5 ]; then
+            echo "::error::expected at least 5 generated clips, found ${#FILES[@]}"
+            exit 1
+          fi
           cd vlc-src/libvlcrs
-          cargo run --quiet --release -p vlcrs-media --example probe -- \
-            "$GITHUB_WORKSPACE"/libvlcrs-android/demo/src/main/assets/* \
+          cargo run --quiet --release -p vlcrs-media --example probe -- "${FILES[@]}" \
             | tee "$GITHUB_WORKSPACE/dist/probe-report.txt"
           grep -q "Auto 360° SBS" "$GITHUB_WORKSPACE/dist/probe-report.txt"
           grep -q "Auto 180° mono" "$GITHUB_WORKSPACE/dist/probe-report.txt"
