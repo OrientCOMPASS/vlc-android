@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  libvlcrs API module.
+
+  No permission is required to render into a surface the application provides or
+  to read the motion sensors.  INTERNET is declared for applications that stream
+  http(s) media through the platform demuxer; it can be removed with the manifest
+  merger if the host app does not need it.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- arm64-v8a only: libvlcrs.so is built for a single ABI -->
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+</manifest>

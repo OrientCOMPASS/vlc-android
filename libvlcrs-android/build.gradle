@@ -1,0 +1,25 @@
+// Pinned, boring versions: this project must build in CI without surprises and
+// must not interfere with the versions used by the VLC for Android app.
+buildscript {
+    ext {
+        agp_version = '8.5.2'
+        kotlin_version = '1.9.24'
+        compile_sdk = 34
+        min_sdk = 26          // AAudio + ASensorManager_getInstanceForPackage
+        target_sdk = 34
+        // Only arm64-v8a is supported by libvlcrs.
+        abi = 'arm64-v8a'
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:$agp_version"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}

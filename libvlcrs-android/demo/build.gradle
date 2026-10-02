@@ -1,0 +1,58 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace 'org.videolan.libvlcrs.demo'
+    compileSdk rootProject.ext.compile_sdk
+
+    defaultConfig {
+        applicationId 'org.videolan.libvlcrs.demo'
+        minSdk rootProject.ext.min_sdk
+        targetSdk rootProject.ext.target_sdk
+        versionCode 1
+        versionName '1.0.0'
+        ndk {
+            // libvlcrs exists for arm64-v8a only, so the APK is arm64-only too
+            abiFilters rootProject.ext.abi
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            // Signed with the (auto generated) debug key so the artefact can be
+            // side loaded straight from CI.  Replace with a real signing config
+            // for distribution.
+            signingConfig signingConfigs.debug
+        }
+        debug {
+            // not built by CI; kept so that `gradle assembleDebug` works locally
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+}
+
+dependencies {
+    implementation project(':api')
+}

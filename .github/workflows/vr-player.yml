@@ -1,0 +1,263 @@
+name: vr-player
+
+# Builds the libvlcrs Android integration: the Rust engine (from the `vlc`
+# repository), the Kotlin API AAR and the demo player APK.
+#
+# Ground rules:
+#   * arm64-v8a only — the engine exists for a single ABI;
+#   * release builds only — CI never produces a debug artefact;
+#   * no version is bumped here: the demo app keeps its own 1.0.0 and the VLC for
+#     Android app is untouched.
+
+on:
+  push:
+    branches:
+      - feature/libvlcrs-vr
+    paths:
+      - 'libvlcrs-android/**'
+      - '.github/workflows/vr-player.yml'
+  pull_request:
+    paths:
+      - 'libvlcrs-android/**'
+      - '.github/workflows/vr-player.yml'
+  workflow_dispatch:
+    inputs:
+      engine_ref:
+        description: 'vlc repository ref to build the engine from'
+        required: false
+        default: 'feature/libvlcrs-lite'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vr-player-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VLCRS_ENGINE_REPO: OrientCOMPASS/vlc
+  VLCRS_ENGINE_REF: feature/libvlcrs-lite
+  VLCRS_ANDROID_API: '26'
+  VLCRS_TARGET: aarch64-linux-android
+  VLCRS_ABI: arm64-v8a
+  GRADLE_VERSION: '8.7'
+
+jobs:
+  build:
+    name: engine + AAR + APK (arm64-v8a release)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: fetch the engine sources
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.engine_ref }}"
+          REF="${REF:-$VLCRS_ENGINE_REF}"
+          echo "engine: https://github.com/$VLCRS_ENGINE_REPO @ $REF"
+          git clone --depth 1 --branch "$REF" \
+            "https://github.com/$VLCRS_ENGINE_REPO.git" vlc-src
+          (cd vlc-src && echo "engine commit: $(git rev-parse HEAD)") | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vlc-src/libvlcrs -> target
+
+      - name: locate the NDK
+        id: ndk
+        run: |
+          set -euo pipefail
+          for candidate in \
+            "${ANDROID_NDK_LATEST_HOME:-}" \
+            "${ANDROID_NDK_HOME:-}" \
+            "${ANDROID_NDK:-}" \
+            $(ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | sort -V | tail -1); do
+            if [ -n "${candidate:-}" ] && [ -x "$candidate/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ]; then
+              echo "ndk=$candidate" >> "$GITHUB_OUTPUT"
+              echo "Using NDK: $candidate"
+              exit 0
+            fi
+          done
+          echo "::error::no usable Android NDK found"
+          exit 1
+
+      - name: cross compile libvlcrs.so (release, arm64-v8a)
+        env:
+          NDK: ${{ steps.ndk.outputs.ndk }}
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          export PATH="$TOOLCHAIN/bin:$PATH"
+          export CC_aarch64_linux_android="$TOOLCHAIN/bin/aarch64-linux-android${VLCRS_ANDROID_API}-clang"
+          export AR_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$AR_aarch64_linux_android"
+          cd vlc-src/libvlcrs
+          cargo build --release --target "$VLCRS_TARGET" -p vlcrs-lite
+          SO="target/$VLCRS_TARGET/release/libvlcrs.so"
+          test -f "$SO"
+          "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$SO"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "$SO" "$GITHUB_WORKSPACE/dist/libvlcrs.so"
+          cp include/vlcrs.h "$GITHUB_WORKSPACE/dist/vlcrs.h"
+          ls -l "$GITHUB_WORKSPACE/dist"
+
+      - name: install the engine into the API module
+        run: |
+          set -euo pipefail
+          DEST="libvlcrs-android/api/src/main/jniLibs/$VLCRS_ABI"
+          mkdir -p "$DEST"
+          cp dist/libvlcrs.so "$DEST/libvlcrs.so"
+          ls -l "$DEST"
+          echo "libvlcrs.so: $(sha256sum "$DEST/libvlcrs.so" | cut -d' ' -f1)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: ensure Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "SDK: $SDK"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)
+          fi
+          need=0
+          [ -d "$SDK/platforms/android-34" ] || need=1
+          [ -d "$SDK/build-tools/34.0.0" ] || need=1
+          if [ "$need" = "1" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          else
+            echo "platforms;android-34 and build-tools;34.0.0 already present"
+          fi
+
+      - name: generate the self-test media
+        run: |
+          set -euo pipefail
+          ffmpeg -version | head -1
+          export VLCRS_INJECTOR="$GITHUB_WORKSPACE/vlc-src/libvlcrs/tools/spherical_inject.py"
+          bash libvlcrs-android/tools/make_test_media.sh \
+            "$GITHUB_WORKSPACE/libvlcrs-android/demo/src/main/assets" 10
+          ls -l libvlcrs-android/demo/src/main/assets
+
+      - name: verify the generated media with the engine prober
+        run: |
+          set -euo pipefail
+          cd vlc-src/libvlcrs
+          cargo run --quiet --release -p vlcrs-media --example probe -- \
+            "$GITHUB_WORKSPACE"/libvlcrs-android/demo/src/main/assets/* \
+            | tee "$GITHUB_WORKSPACE/dist/probe-report.txt"
+          grep -q "Auto 360° SBS" "$GITHUB_WORKSPACE/dist/probe-report.txt"
+          grep -q "Auto 180° mono" "$GITHUB_WORKSPACE/dist/probe-report.txt"
+          grep -q "Auto 2D mono (fallback)" "$GITHUB_WORKSPACE/dist/probe-report.txt"
+          echo "prober verified the whole format matrix" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: build the AAR and the APK (release, arm64-v8a)
+        run: |
+          set -euo pipefail
+          cd libvlcrs-android
+          gradle --no-daemon --stacktrace --warning-mode summary \
+            :api:assembleRelease :demo:assembleRelease
+
+      - name: collect artefacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist/apk dist/aar
+          APK=$(find libvlcrs-android/demo/build/outputs/apk/release -name '*.apk' | head -1)
+          AAR=$(find libvlcrs-android/api/build/outputs/aar -name '*.aar' | head -1)
+          test -n "$APK" && test -n "$AAR"
+          cp "$APK" dist/apk/libvlcrs-vr-demo-1.0.0-arm64-v8a.apk
+          cp "$AAR" dist/aar/libvlcrs-api-1.0.0.aar
+          cp dist/vlcrs.h dist/
+          (cd dist/apk && sha256sum *.apk > SHA256SUMS.txt)
+          (cd dist/aar && sha256sum *.aar >> SHA256SUMS.txt)
+          (cd dist && sha256sum libvlcrs.so vlcrs.h > SHA256SUMS-engine.txt)
+          cat dist/apk/SHA256SUMS.txt dist/aar/SHA256SUMS.txt dist/SHA256SUMS-engine.txt \
+            > dist/SHA256SUMS.txt
+          rm -f dist/apk/SHA256SUMS.txt dist/aar/SHA256SUMS.txt dist/SHA256SUMS-engine.txt
+          (cd libvlcrs-android/demo/src/main && zip -qr "$GITHUB_WORKSPACE/dist/vr-test-media.zip" assets)
+          {
+            echo "libvlcrs VR player build"
+            echo "========================"
+            echo "abi:        $VLCRS_ABI (only)"
+            echo "build type: release (no debug artefact is produced)"
+            echo "min SDK:    26   target SDK: 34"
+            echo "engine:     $VLCRS_ENGINE_REPO@$VLCRS_ENGINE_REF"
+            echo "app commit: $GITHUB_SHA"
+            echo "gradle:     $GRADLE_VERSION"
+            echo
+            echo "Signed with the CI-generated debug key: uninstall any previous"
+            echo "build before installing this one."
+          } > dist/BUILD-INFO.txt
+          ls -lR dist | head -40
+          echo "### Artefacts" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -l dist/apk dist/aar >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload build artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlcrs-vr-player-arm64-v8a
+          path: |
+            dist/apk/libvlcrs-vr-demo-1.0.0-arm64-v8a.apk
+            dist/aar/libvlcrs-api-1.0.0.aar
+            dist/libvlcrs.so
+            dist/vlcrs.h
+            dist/vr-test-media.zip
+            dist/probe-report.txt
+            dist/SHA256SUMS.txt
+            dist/BUILD-INFO.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: publish release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd dist
+          TAG="vrplayer-v1.0.0-arm64"
+          NOTES=$(mktemp)
+          {
+            echo "libvlcrs VR demo player + Kotlin API for **arm64-v8a** (release build)."
+            echo
+            echo "**What is inside**"
+            echo "* \`libvlcrs-vr-demo-1.0.0-arm64-v8a.apk\` — the demo player with bundled self-test media covering the whole format matrix."
+            echo "* \`libvlcrs-api-1.0.0.aar\` — the Kotlin API (\`RsMediaPlayer\`, \`VrVideoView\`, …) with \`jniLibs/arm64-v8a/libvlcrs.so\`."
+            echo "* \`libvlcrs.so\` + \`vlcrs.h\` — the raw engine and its C ABI."
+            echo "* \`vr-test-media.zip\` — the generated 360°/180° × mono/SBS/TB clips (tagged with real spherical metadata)."
+            echo
+            echo "**VR matrix**: Auto (metadata) · Planar · 360° mono/SBS/TB · 180° mono/SBS/TB, left/right eye selectable, switched in place without losing the playback position. One finger drag looks around, pinch changes the FOV, the gyroscope drives the head tracker, \`Re-centre\` resets the view, and the HUD shows yaw/pitch/FOV/limits."
+            echo
+            echo "Built from app commit \`$GITHUB_SHA\` with the engine at \`$VLCRS_ENGINE_REPO@$VLCRS_ENGINE_REF\`."
+            echo
+            echo "> Signed with the CI-generated debug key — uninstall any previous build first."
+          } > "$NOTES"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "libvlcrs VR player 1.0.0 (arm64-v8a)" --notes-file "$NOTES"
+          fi
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apk/libvlcrs-vr-demo-1.0.0-arm64-v8a.apk \
+            aar/libvlcrs-api-1.0.0.aar \
+            libvlcrs.so vlcrs.h vr-test-media.zip probe-report.txt \
+            SHA256SUMS.txt BUILD-INFO.txt
+          echo "released $TAG"
+          echo "[Release $TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) published." >> "$GITHUB_STEP_SUMMARY"

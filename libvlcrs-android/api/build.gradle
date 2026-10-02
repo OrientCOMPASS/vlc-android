@@ -1,0 +1,42 @@
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace 'org.videolan.libvlcrs'
+    compileSdk rootProject.ext.compile_sdk
+
+    defaultConfig {
+        minSdk rootProject.ext.min_sdk
+        consumerProguardFiles 'consumer-rules.pro'
+        ndk {
+            // libvlcrs is built for arm64-v8a only
+            abiFilters rootProject.ext.abi
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    sourceSets {
+        main {
+            // CI drops the cross compiled libvlcrs.so here before building
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
