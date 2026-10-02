@@ -160,6 +160,30 @@ media(path/fd/uri) ─► demux 线程 AMediaExtractor ─┬─► video 包队
 
 ---
 
+## 5.1 交付验证（CI 产物实测）
+
+以下均为从 GitHub Release 下载后在本地实测的结果，不是构建日志转述：
+
+| 检查项 | 结果 |
+|---|---|
+| `libvlcrs.so`（两个 release 中同一文件） | `sha256 fb88adfc885d1133bff9ca983e67f8133bb72fe748bc981b476ddbf1529c4d3b`，739088 字节 |
+| ELF | `ELF 64-bit LSB shared object, ARM aarch64, stripped`，`Machine: AArch64` |
+| 依赖库 | `libmediandk / libandroid / liblog / libaaudio / libEGL / libGLESv2 / libdl / libm / libc`（**无 FFmpeg、无 libvlc**） |
+| 导出符号 | 64 个（`JNI_OnLoad`、`Java_org_videolan_libvlcrs_NativeBridge_*`、`vlcrs_*`），CI 用 `llvm-nm` 断言 |
+| APK | `sha256 bce66c334994f51555e60673b16ad0a9a743a5d7a6763dd25c39f411d2a71e42`，10.6 MB |
+| APK 内 ABI | `lib/arm64-v8a/` **仅此一种** |
+| APK 内 .so | 与引擎 release 中的 `libvlcrs.so` sha256 **完全一致** |
+| APK 内自测片源 | `planar_16x9.mp4`、`vr360_mono.mp4`、`vr360_sbs.mp4`、`vr360_tb.mp4`、`vr180_mono.mp4`、`vr180_sbs.mp4`、`vr360_mono.mkv` |
+| APK 签名 | 含 APK Signing Block（v2/v3），CI 生成的 debug key |
+| AAR | `sha256 f15ad5cca55f9c3e922cadaf617d6d89b9a256b0f5589bfe960d68919fcc7a49`，426 KB，含 `jni/arm64-v8a/libvlcrs.so` + `classes.jar` + `proguard.txt` |
+| JNI 名称未被 Kotlin 混淆 | DEX 中 `onNativeEvent` / `createSurfaceTexture` / `updateTexImage` / `getTransformMatrix` / `native*` 均为原名，无 `$module_release` 后缀 |
+| 片源元数据（CI 内用引擎自带探测器校验，不通过则构建失败） | `planar_16x9 → Auto 2D mono (fallback)`、`vr360_mono.mp4/.mkv → Auto 360° mono (metadata)`、`vr360_sbs → Auto 360° SBS`、`vr360_tb → Auto 360° TB`、`vr180_mono → Auto 180° mono`、`vr180_sbs → Auto 180° SBS` |
+| 单元测试 | 149 个（`vlcrs-vr` 96、`vlcrs-media` 30、`vlcrs-lite` 23），host release profile |
+| Lint | `cargo clippy -D warnings` 在 host 与 `--target aarch64-linux-android` 两侧均干净；`cargo fmt --check` 干净 |
+| CI | `OrientCOMPASS/vlc` run [37069950083](https://github.com/OrientCOMPASS/vlc/actions/runs/37069950083) success；`OrientCOMPASS/vlc-android` run success（gradle `BUILD SUCCESSFUL`） |
+
+---
+
 ## 6. 已知限制
 
 * 仅 `arm64-v8a` / API 26+。
